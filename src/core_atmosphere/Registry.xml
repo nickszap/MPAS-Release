@@ -226,6 +226,8 @@
 			<var name="ol2"/>
 			<var name="ol3"/>
 			<var name="ol4"/>
+			<var name="vortexLat"/>
+			<var name="vortexLon"/>
 		</stream>
 
 		<stream name="restart" type="restart">
@@ -513,6 +515,8 @@
 			<var name="ol2"/>
 			<var name="ol3"/>
 			<var name="ol4"/>
+			<var name="vortexLat"/>
+			<var name="vortexLon"/>
 		</stream>
 
 		<stream name="output" type="output">
@@ -615,6 +619,9 @@
 			<var name="dtheta_dt_mp"/>
 			<var name="depv_dt_mp"/>
 			<var name="depv_dt_mix"/>
+			<var name="vortexLat"/>
+			<var name="vortexLon"/>
+			<var name="inVortex"/>
 			<var name="uReconstructX"/>
 			<var name="uReconstructY"/>
 			<var name="uReconstructZ"/>
@@ -1066,6 +1073,9 @@
                 <var name="dtheta_dt_mp" type="real" dimensions="nVertLevels nCells Time"/>
                 <var name="depv_dt_mp" type="real" dimensions="nVertLevels nCells Time"/>
                 <var name="depv_dt_mix" type="real" dimensions="nVertLevels nCells Time"/>
+                <var name="vortexLat" type="real"     dimensions="FIFTEEN Time"/>
+                <var name="vortexLon" type="real"     dimensions="FIFTEEN Time"/>
+                <var name="inVortex" type="integer"  dimensions="nCells Time"/>
                 
                 <!-- reconstructed horizontal velocity vectors at cell centers -->
                 <var name="uReconstructX"           type="real"     dimensions="nVertLevels nCells Time"/>

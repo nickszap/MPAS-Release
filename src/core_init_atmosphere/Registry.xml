@@ -359,6 +359,8 @@
 			<var name="theta_base"/>
 			<var name="surface_pressure"/>
 			<var name="precipw"/>
+			<var name="vortexLat"/>
+      <var name="vortexLon"/>
 		</stream>
 		<stream name="surface" type="input;output">
 			<var name="xtime"/>
@@ -552,6 +554,9 @@
                 <var name="theta_base"                        type="real"     dimensions="nVertLevels nCells Time"/>
                 <var name="cqw"                               type="real"     dimensions="nVertLevels nCells Time"/>
                 <var name="surface_pressure"                  type="real"     dimensions="nCells Time"/>
+                
+                <var name="vortexLat" type="real"     dimensions="FIFTEEN Time"/>
+                <var name="vortexLon" type="real"     dimensions="FIFTEEN Time"/>
 
                 <!-- coupled variables needed by the solver, but not output -->
                 <var name="ru"                                type="real"     dimensions="nVertLevels nEdges Time"/>
