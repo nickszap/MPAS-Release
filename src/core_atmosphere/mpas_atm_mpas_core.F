@@ -393,7 +393,12 @@ module mpas_core
          write(0,*) 'Begin timestep ', trim(timeStamp)
          
          !nick: track vortex
-         nTPV = 1
+         nTPV = 2
+         !write(0,*) 'Number of TPVs Tracking: ', nTPV
+         block_ptr => domain % blocklist
+         call mpas_pool_get_subpool(block_ptr % structs, 'state', state)
+         call mpas_pool_get_subpool(block_ptr % structs, 'diag', diag)
+         call mpas_pool_get_subpool(block_ptr % structs, 'mesh', mesh)
          call atm_compute_vortexLoc(state, diag, mesh, domain,1, nTPV)
 
          ! Input external updates (i.e. surface)
@@ -2147,7 +2152,7 @@ module mpas_core
       integer, dimension(:), pointer :: inVortex, nEdgesOnCell
       type (field1DInteger), pointer :: inVortex_f
       integer, dimension(:,:), pointer :: cellsOnCell
-      real(kind=RKIND) :: pvuVal, missingVal, valCell, theta_min, global_theta_min, dThetaTPV
+      real(kind=RKIND) :: pvuVal, missingVal, valCell, theta_min, global_theta_min, dThetaTPV, tpvRadius
       real(kind=RKIND) :: iVortexLat, iVortexLon, lat0, lon0, bigVal, dist, maxDist
       real (kind=RKIND), dimension(:), pointer :: theta_pv, latCell, lonCell, vortexLat, vortexLon
       real (kind=RKIND), dimension(:,:), pointer :: theta, rho, theta_m, rho_zz, zz
@@ -2193,10 +2198,17 @@ module mpas_core
       missingVal = -99999.0_RKIND
       call interp_pv_diagnostics(mesh, diag, pvuVal, missingVal)
       
-      !now we track min within a spatial disk
-      !atmo core doesn't work for multiple blocks/process...1 block <---> 1 process for MPI comm
+      !for tracking TPVs, we can use:
+      !-spatial disk about min: not necesarily w/in TPV
+      !-PT DT from minTheta: not necessarily w/in TPV
+      
+      !note that atmo core doesn't work for multiple blocks/process...1 block <---> 1 process for MPI comm
       maxDist = 2.0e5 ! m for search radius for next tpv min wrt previous min
       dThetaTPV = 10.0 ! degrees K for amplitude from tpv min...defines spatial inVortex
+      tpvRadius = 6.0e5 !m for radius from tpv min...defines spatial vortex
+      
+      write(0,*) "TPV search info (nTPV, maxDist, dThetaTPV, tpvRadius): ", nTPV, maxDist, dThetaTPV, tpvRadius
+      
       call mpas_pool_get_array(diag, 'vortexLat', vortexLat) !get_array needs array to get :)
       call mpas_pool_get_array(diag, 'vortexLon', vortexLon)
       call mpas_pool_get_array(diag, 'theta_pv', theta_pv)
@@ -2209,13 +2221,6 @@ module mpas_core
       !to track multiple tpvs, we'll use a tmp array to accumulate inVortex for each TPV
       allocate(tmp(nCells))
       tmp(:) = 0
-      
-      !nick debug:
-      write(0,*) latCell(1:20)
-      write(0,*) lonCell(1:20)
-      write(0,*) "Number of TPVs: ", nTPV
-      write(0,*) vortexLat(1:5)
-      write(0,*) vortexLon(1:5)
       
       do iTPV = 1, nTPV
         theta_min = bigVal
@@ -2260,7 +2265,7 @@ module mpas_core
         !hence the lat0/lon0 hack to store value
         call mpas_dmpar_min_real(domain%dminfo, lat0, iVortexLat)
         call mpas_dmpar_min_real(domain%dminfo, lon0, iVortexLon)
-        write(0,*) 'vortex lat/lon: ', iVortexLat, iVortexLon
+        write(0,*) 'vortex lat, lon, thetaMin: ', iVortexLat, iVortexLon, global_theta_min
         vortexLat(iTPV) = iVortexLat
         vortexLon(iTPV) = iVortexLon
         
@@ -2309,6 +2314,14 @@ module mpas_core
         end do !while (updateBoundary)
         !don't need to spread inVortex since any boundary updates will continue loop above
         !call mpas_dmpar_exch_halo_field(inVortex_f)
+        
+        !limit inVortex to w/in radius of tpvLocation
+        do iCell = 1, nCellsSolve
+          dist = sphere_distance(latCell(iCell), lonCell(iCell), iVortexLat, iVortexLon, a)
+          if (dist>tpvRadius) then
+            inVortex(iCell) = 0
+          end if
+        end do
         
         tmp(1:nCellsSolve) = tmp(1:nCellsSolve)+inVortex(1:nCellsSolve)
         
