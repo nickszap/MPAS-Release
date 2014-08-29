@@ -205,7 +205,7 @@
       
       do iCell = 1, nCellsSolve
         if (inVortex(iCell)>0) then
-          scalars(index_qv,1:nVertLevels,1:nCellsSolve) = 0.0
+          scalars(index_qv,1:nVertLevels,iCell) = 0.0
         end if
       end do
       call MPAS_to_physics(mesh,state,time_lev,diag,diag_physics)
@@ -218,7 +218,7 @@
       
       do iCell = 1, nCellsSolve
         if (inVortex(iCell)>0) then
-          cldfrac(1:nVertLevels,1:nCellsSolve) = 0.0
+          cldfrac(1:nVertLevels, iCell) = 0.0
         end if
       end do
     
