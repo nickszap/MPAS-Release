@@ -393,7 +393,7 @@ module mpas_core
          write(0,*) 'Begin timestep ', trim(timeStamp)
          
          !nick: track vortex
-         nTPV = 2
+         nTPV = 1
          !write(0,*) 'Number of TPVs Tracking: ', nTPV
          block_ptr => domain % blocklist
          call mpas_pool_get_subpool(block_ptr % structs, 'state', state)
@@ -2152,7 +2152,7 @@ module mpas_core
       integer, dimension(:), pointer :: inVortex, nEdgesOnCell
       type (field1DInteger), pointer :: inVortex_f
       integer, dimension(:,:), pointer :: cellsOnCell
-      real(kind=RKIND) :: pvuVal, missingVal, valCell, theta_min, global_theta_min, dThetaTPV, tpvRadius
+      real(kind=RKIND) :: pvuVal, missingVal, valCell, theta_min, global_theta_min, dThetaTPV, tpvRadius, thetaContour
       real(kind=RKIND) :: iVortexLat, iVortexLon, lat0, lon0, bigVal, dist, maxDist
       real (kind=RKIND), dimension(:), pointer :: theta_pv, latCell, lonCell, vortexLat, vortexLon
       real (kind=RKIND), dimension(:,:), pointer :: theta, rho, theta_m, rho_zz, zz
@@ -2205,9 +2205,10 @@ module mpas_core
       !note that atmo core doesn't work for multiple blocks/process...1 block <---> 1 process for MPI comm
       maxDist = 2.0e5 ! m for search radius for next tpv min wrt previous min
       dThetaTPV = 10.0 ! degrees K for amplitude from tpv min...defines spatial inVortex
+      thetaContour = 305.0 !degrees K for bounding contour about tpv min...defines spatial inVortex
       tpvRadius = 6.0e5 !m for radius from tpv min...defines spatial vortex
       
-      write(0,*) "TPV search info (nTPV, maxDist, dThetaTPV, tpvRadius): ", nTPV, maxDist, dThetaTPV, tpvRadius
+      write(0,*) "TPV search info (nTPV, maxDist, dThetaTPV, tpvRadius, thetaContour): ", nTPV, maxDist, dThetaTPV, tpvRadius, thetaContour
       
       call mpas_pool_get_array(diag, 'vortexLat', vortexLat) !get_array needs array to get :)
       call mpas_pool_get_array(diag, 'vortexLon', vortexLon)
@@ -2296,7 +2297,8 @@ module mpas_core
                 end do
                 if (nbrInVortex == 0) cycle
                 !if here, self is candidate with nbr in vortex
-                if (theta_pv(iCell)-global_theta_min < dThetaTPV) then
+                !if (theta_pv(iCell)-global_theta_min < dThetaTPV) then
+                if (theta_pv(iCell) < thetaContour) then
                   !self in vortex
                   inVortex(iCell) = 1
                   regionChanging = regionChanging+1

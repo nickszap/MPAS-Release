@@ -131,7 +131,8 @@
  integer :: iCell, k, modifyField
  integer, pointer :: index_qv, nCellsSolve, nVertLevels
  integer, dimension(:), pointer :: inVortex
- real(kind=RKIND), dimension(:,:), pointer :: qv, cldfrac
+ real (kind=RKIND), dimension(:), pointer :: theta_pv
+ real(kind=RKIND), dimension(:,:), pointer :: qv, cldfrac, theta
  real(kind=RKIND), dimension(:,:), allocatable :: tmp
  real (kind=RKIND), dimension(:,:,:), pointer :: scalars
 
@@ -200,12 +201,28 @@
       !store and modify qv
       call mpas_pool_get_dimension(state, 'index_qv', index_qv)
       call mpas_pool_get_array(state, 'scalars', scalars, time_lev)
+      call mpas_pool_get_array(diag, 'theta_pv', theta_pv)
+      call mpas_pool_get_array(diag, 'theta', theta)
       
       tmp(1:nVertLevels,1:nCellsSolve) = scalars(index_qv,1:nVertLevels,1:nCellsSolve)
       
       do iCell = 1, nCellsSolve
         if (inVortex(iCell)>0) then
-          scalars(index_qv,1:nVertLevels,iCell) = 0.0
+          ! ---Either---
+          !zero out column
+          !scalars(index_qv,1:nVertLevels,iCell) = 0.0
+          ! ---OR ------
+          !modify stratospheric qv (to enhance gradient)
+          do k=nVertLevels,1,-1
+            if (theta(k,iCell)>theta_pv(iCell)) then
+              !in stratosphere
+              scalars(index_qv,k,iCell) = .1*scalars(index_qv,k,iCell)
+            else
+              !crossed into troposphere
+              exit
+            end if
+          end do
+          
         end if
       end do
       call MPAS_to_physics(mesh,state,time_lev,diag,diag_physics)
