@@ -360,7 +360,8 @@ module mpas_core
             call mpas_pool_get_subpool(block_ptr % structs, 'mesh', mesh)
             call atm_compute_output_diagnostics(state, 1, diag, diag_physics, mesh)
             call atm_compute_pv_diagnostics(state, 1, diag, mesh)
-
+            call helper_epv_conservation(state, diag)
+            
             block_ptr => block_ptr % next
          end do
       end if
@@ -407,6 +408,24 @@ module mpas_core
          call mpas_pool_get_subpool(domain % blocklist % structs, 'state', state)
          call mpas_pool_shift_time_levels(state)
          
+         !nick: pvConservation
+         !we don't need to zero out epvRHS to start if we always take it as deltaEPV ~ deltaEPVRHS over delta timesteps (at output times)
+         block_ptr => domain % blocklist
+         do while (associated(block_ptr))
+           
+           call mpas_pool_get_subpool(block_ptr % structs, 'state', state)
+           call mpas_pool_get_subpool(block_ptr % structs, 'diag', diag)
+           call mpas_pool_get_subpool(block_ptr % structs, 'diag_physics', diag_physics)
+           call mpas_pool_get_subpool(block_ptr % structs, 'mesh', mesh)
+           call mpas_pool_get_subpool(block_ptr % structs, 'tend', tend)
+           call mpas_pool_get_subpool(block_ptr % structs, 'tend_physics', tend_physics)
+           call atm_compute_pv_diagnostics(state, 1, diag, mesh)
+           call atm_compute_pvBudget_diagnostics(state, 1, diag, mesh, tend, tend_physics)
+           call accum_epvRHS(diag, tend, state)
+           
+           block_ptr => block_ptr % next
+         end do
+         
          ! Advance clock before writing output
          itimestep = itimestep + 1
          call mpas_advance_clock(clock)
@@ -428,7 +447,8 @@ module mpas_core
               call atm_compute_output_diagnostics(state, 1, diag, diag_physics, mesh)
               call atm_compute_pv_diagnostics(state, 1, diag, mesh)
               call atm_compute_pvBudget_diagnostics(state, 1, diag, mesh, tend, tend_physics)
-
+              call helper_epv_conservation(state, diag)
+              
               block_ptr => block_ptr % next
            end do
          end if
@@ -2220,5 +2240,60 @@ module mpas_core
       call interp_pvBudget_diagnostics(mesh, diag, pvuVal, missingVal)
    
    end subroutine atm_compute_pvBudget_diagnostics
+   
+   subroutine helper_epv_conservation(state, diag)
+      ! save and reset the advected epv. 
+      ! if we call this after calculating epv and before output, then we can't zero epvRHS.
+      !note that mpas_pool_shift_time_levels() is called before this.
+      
+      implicit none
+      
+      type (mpas_pool_type), intent(inout) :: state, diag
+      
+      integer, pointer :: index_epvp, index_epvm
+      real (kind=RKIND), dimension(:,:), pointer :: ertel_pv, epvAdvect
+      real (kind=RKIND), dimension(:,:,:), pointer :: scalars
+      
+      call mpas_pool_get_dimension(state, 'index_epvp', index_epvp)
+      call mpas_pool_get_dimension(state, 'index_epvm', index_epvm)
+      call mpas_pool_get_array(state, 'scalars', scalars, 1)
+      call mpas_pool_get_array(diag, 'ertel_pv', ertel_pv)
+      call mpas_pool_get_array(diag, 'epvAdvect', epvAdvect)
+      
+      epvAdvect(:,:) = scalars(index_epvp,:,:)-scalars(index_epvm,:,:)
+      scalars(index_epvp,:,:) = max(ertel_pv(:,:), 0.0_RKIND)
+      scalars(index_epvm,:,:) = -min(ertel_pv(:,:), 0.0_RKIND)
+      
+   end subroutine helper_epv_conservation
+   
+   subroutine accum_epvRHS(diag, tend, state)
+      !D(pv)/Dt = diabatic+frictional term
+      !Set scalar tend for advecting epv scalars to 0 (not clear that this needs to be done)
+      
+      implicit none
+      
+      type (mpas_pool_type), intent(inout) :: diag, tend
+      type (mpas_pool_type), intent(in) :: state
+      
+      integer, pointer :: index_epvp, index_epvm
+      real (kind=RKIND), dimension(:,:), pointer :: epv_diab_accum, epv_fric_accum, depv_dt_diab, depv_dt_fric
+      real (kind=RKIND), dimension(:,:,:), pointer :: scalar_tend
+      
+      call mpas_pool_get_array(diag, 'epv_diab_accum', epv_diab_accum)
+      call mpas_pool_get_array(diag, 'epv_fric_accum', epv_fric_accum)
+      call mpas_pool_get_array(diag, 'depv_dt_diab', depv_dt_diab)
+      call mpas_pool_get_array(diag, 'depv_dt_fric', depv_dt_fric)
+      
+      epv_diab_accum = epv_diab_accum + depv_dt_diab
+      epv_fric_accum = epv_fric_accum + depv_dt_fric
+      
+      call mpas_pool_get_array(tend, 'scalars_tend', scalar_tend)
+      call mpas_pool_get_dimension(state, 'index_epvp', index_epvp)
+      call mpas_pool_get_dimension(state, 'index_epvm', index_epvm)
+      
+      scalar_tend(index_epvp,:,:) = 0.0_RKIND
+      scalar_tend(index_epvm,:,:) = 0.0_RKIND
+      
+   end subroutine accum_epvRHS
 
 end module mpas_core

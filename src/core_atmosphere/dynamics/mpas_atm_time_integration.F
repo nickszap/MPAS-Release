@@ -1487,6 +1487,7 @@ module atm_time_integration
       real (kind=RKIND) :: dt
 
       integer :: i, iCell, iEdge, k, iScalar, cell1, cell2
+      integer, pointer :: index_epvp, index_epvm
       real (kind=RKIND) :: scalar_weight
 
       real (kind=RKIND), dimension(:,:,:), pointer :: scalar_old, scalar_new, scalar_tend
@@ -1695,6 +1696,12 @@ module atm_time_integration
          write(0,*) ' bad value for config_scalar_vadv_order - ', config_scalar_vadv_order
 
       end if
+      
+      !nick: zero out the scratch values in scalar_tend for the non-moist scalars we added
+      call mpas_pool_get_dimension(state, 'index_epvp', index_epvp)
+      call mpas_pool_get_dimension(state, 'index_epvm', index_epvm)
+      scalar_tend(index_epvp,:,:) = 0.0_RKIND
+      scalar_tend(index_epvm,:,:) = 0.0_RKIND
 
    end subroutine atm_advance_scalars
 

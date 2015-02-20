@@ -586,6 +586,9 @@
 			  <var name="depv_dt_fric"/>
 			  <var name="depv_dt_diab_pv"/>
 			  <var name="depv_dt_fric_pv"/>
+			  <var name="epvAdvect"/>
+			  <var name="epv_fric_accum"/>
+			  <var name="epv_diab_accum"/>
 			<var name="i_rainnc"/>
 			<var name="rainnc"/>
 			<var name="precipw"/>
@@ -789,6 +792,8 @@
                         <var name="qi"      array_group="moist"/>
                         <var name="qs"      array_group="moist"/>
                         <var name="qg"      array_group="moist"/>
+                        <var name="epvp"      array_group="passive"/>
+                        <var name="epvm"      array_group="passive"/>
                 </var_array>
 
                 <var_array name="aerosols" type="real" dimensions="nAerLevels nCells Time">
@@ -857,6 +862,10 @@
 			            <var name="tend_u_phys" type="real" dimensions="nVertLevels nEdges Time"/>
                   <var name="depv_dt_diab_pv" type="real" dimensions="nCells Time"/>
 			            <var name="depv_dt_fric_pv" type="real" dimensions="nCells Time"/>
+			          <!-- nick PV budget conservation -->
+			            <var name="epvAdvect" type="real" dimensions="nVertLevels nCells Time"/>
+			            <var name="epv_diab_accum" type="real" dimensions="nVertLevels nCells Time"/>
+			            <var name="epv_fric_accum" type="real" dimensions="nVertLevels nCells Time"/>
 
                 <!-- reconstructed horizontal velocity vectors at cell centers -->
                 <var name="uReconstructX"           type="real"     dimensions="nVertLevels nCells Time"/>
@@ -961,6 +970,8 @@
                         <var name="tend_qi"    name_in_code="qi"        array_group="moist"/>
                         <var name="tend_qs"    name_in_code="qs"        array_group="moist"/>
                         <var name="tend_qg"    name_in_code="qg"        array_group="moist"/>
+                        <var name="tend_epvp"   name_in_code="epvp"       array_group="passive"/>
+                        <var name="tend_epvm"   name_in_code="epvm"       array_group="passive"/>
                 </var_array>
         </var_struct>
 
