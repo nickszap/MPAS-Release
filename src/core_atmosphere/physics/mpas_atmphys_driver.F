@@ -126,6 +126,20 @@
  type(block_type),pointer:: block
 
  integer:: time_lev
+ 
+ !nick: several ways to modify lwrad w/in TPV (defined by diag%inVortex>0)
+ !-zero water vapor column
+ !-zero cloud fraction
+ !have to store original qv/cldFrac/..., 0 columns, mpas2physics, call radiation, restore qv/cldFrac/...
+ integer :: iCell, k, modifyField
+ integer, pointer :: index_qv, nCellsSolve, nVertLevels
+ integer, dimension(:), pointer :: inVortex
+ real (kind=RKIND), dimension(:), pointer :: theta_pv
+ real(kind=RKIND), dimension(:,:), pointer :: qv, cldfrac, theta
+ real(kind=RKIND), dimension(:,:), allocatable :: tmp
+ real (kind=RKIND), dimension(:,:,:), pointer :: scalars
+ real(kind=RKIND), dimension(:,:), pointer :: rthblten
+ real (kind=RKIND) :: heatStrat, heatTrop, dThetaTrop, dThetaStrat, thetaStrat, thetaTrop
 
 !==================================================================================================
 
@@ -177,6 +191,60 @@
        call driver_radiation_sw(itimestep,block%configs,mesh,state,time_lev,diag_physics, &
                                 atm_input,sfc_input,tend_physics,xtime_s)
     endif
+    
+    !nick: store unmodified states and modify
+    !For qv, MPAS_to_physics() needs to be called to change on "physics mesh". 
+    !For cldfrac, can just modify cldfrac on mpas mesh
+    modifyField = 3 !1-qv, 2-cldfrac, 3-heating profile, other-no change
+    
+    call mpas_pool_get_array(diag, 'inVortex', inVortex)
+    call mpas_pool_get_dimension(mesh, 'nVertLevels', nVertLevels)
+    call mpas_pool_get_dimension(mesh, 'nCellsSolve', nCellsSolve)
+    allocate(tmp(nVertLevels, nCellsSolve))
+    
+    if (modifyField .EQ. 1) then
+      !store and modify qv
+      call mpas_pool_get_dimension(state, 'index_qv', index_qv)
+      call mpas_pool_get_array(state, 'scalars', scalars, time_lev)
+      call mpas_pool_get_array(diag, 'theta_pv', theta_pv)
+      call mpas_pool_get_array(diag, 'theta', theta)
+      
+      tmp(1:nVertLevels,1:nCellsSolve) = scalars(index_qv,1:nVertLevels,1:nCellsSolve)
+      
+      do iCell = 1, nCellsSolve
+        if (inVortex(iCell)>0) then
+          ! ---Either---
+          !zero out column
+          !scalars(index_qv,1:nVertLevels,iCell) = 0.0
+          ! ---OR ------
+          !modify stratospheric qv (to enhance gradient)
+          do k=nVertLevels,1,-1
+            if (theta(k,iCell)>theta_pv(iCell)) then
+              !in stratosphere
+              scalars(index_qv,k,iCell) = .1*scalars(index_qv,k,iCell)
+            else
+              !crossed into troposphere
+              exit
+            end if
+          end do
+          
+        end if
+      end do
+      call MPAS_to_physics(mesh,state,time_lev,diag,diag_physics)
+      
+    end if !modifyField 1
+    if (modifyField .EQ. 2) then
+      !store and modify cldfrac
+      call mpas_pool_get_array(diag_physics,'cldfrac',cldfrac)
+      tmp(1:nVertLevels,1:nCellsSolve) = cldfrac(1:nVertLevels,1:nCellsSolve)
+      
+      do iCell = 1, nCellsSolve
+        if (inVortex(iCell)>0) then
+          cldfrac(1:nVertLevels, iCell) = 0.0
+        end if
+      end do
+    
+    end if !modifyField 2
 
     !call to long wave radiation scheme:
     if(l_radtlw) then
@@ -185,6 +253,19 @@
        call driver_radiation_lw(xtime_s,block%configs,mesh,state,time_lev,diag_physics, &
                                 atm_input,sfc_input,tend_physics)
     endif
+    
+    !reset modified state to original
+    if (modifyField .EQ. 1) then      
+      scalars(index_qv,1:nVertLevels,1:nCellsSolve) = tmp(1:nVertLevels,1:nCellsSolve)
+      call MPAS_to_physics(mesh,state,time_lev,diag,diag_physics)
+    end if !modifyField 1
+    if (modifyField .EQ. 2) then
+      !store and modify cldfrac
+      call mpas_pool_get_array(diag_physics,'cldfrac',cldfrac)
+      cldfrac(1:nVertLevels,1:nCellsSolve) = tmp(1:nVertLevels,1:nCellsSolve)
+    end if !modifyField 2
+    
+    deallocate(tmp)
 
     !call to accumulate long- and short-wave diagnostics if needed:
      if(config_bucket_update /= 'none' .and. config_bucket_radt .gt. 0._RKIND) &
@@ -233,6 +314,42 @@
     endif
     !update diagnostics:
     call update_convection_step2(block%configs,mesh,diag_physics)
+    
+    if (modifyField .EQ. 3) then
+      !artifical heating rate profile
+      
+      call mpas_pool_get_array(tend_physics, 'rthblten', rthblten)
+      
+      !heatStrat = -10./(24.*3600.) !10 K/day * 1 day/24hr * 1 hr/3600 s ~ 1.16E-4 K/s
+      !heatTrop = 0./(24.*3600.)
+      heatStrat = 0./(24.*3600.) !10 K/day * 1 day/24hr * 1 hr/3600 s ~ 1.16E-4 K/s
+      heatTrop = 10./(24.*3600.)
+      dThetaTrop = -5. !K
+      dThetaStrat = 5.
+      
+      call mpas_pool_get_array(diag, 'theta_pv', theta_pv)
+      call mpas_pool_get_array(diag, 'theta', theta)
+      
+      do iCell = 1, nCellsSolve
+        if (inVortex(iCell)>0) then
+          thetaStrat = theta_pv(iCell)+dThetaStrat
+          thetaTrop = theta_pv(iCell)+dThetaTrop
+          do k=1,nVertLevels
+            if (theta(k,iCell)>thetaStrat) then
+              !in stratosphere
+              rthblten(k,iCell) = rthblten(k,iCell)+heatStrat
+            else if (theta(k,iCell)<thetaTrop) then
+              !in troposphere
+              rthblten(k,iCell) = rthblten(k,iCell)+heatTrop
+            else
+              !near tropopause
+              rthblten(k,iCell) = rthblten(k,iCell)+ heatTrop+(heatStrat-heatTrop)*(theta(k,iCell)-thetaTrop)/(thetaStrat-thetaTrop)
+            end if
+          end do
+          
+        end if
+      end do
+    end if !modifyField 3
 
     !deallocate arrays shared by all physics parameterizations:
     call deallocate_forall_physics

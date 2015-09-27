@@ -221,6 +221,8 @@
 			<var name="ol2"/>
 			<var name="ol3"/>
 			<var name="ol4"/>
+			<var name="vortexLat"/>
+			<var name="vortexLon"/>
 		</stream>
 
 		<stream name="restart" 
@@ -508,6 +510,8 @@
 			<var name="ol2"/>
 			<var name="ol3"/>
 			<var name="ol4"/>
+			<var name="vortexLat"/>
+			<var name="vortexLon"/>
 		</stream>
 
 		<stream name="output" 
@@ -568,6 +572,9 @@
 			<var name="divergence"/>
 			<var name="vorticity"/>
 			<var name="ke"/>
+			  <var name="vortexLat"/>
+			  <var name="vortexLon"/>
+			  <var name="inVortex"/>
 			<var name="uReconstructZonal"/>
 			<var name="uReconstructMeridional"/>
 			  <var name="ertel_pv"/>
@@ -839,6 +846,7 @@
                 <var name="ke"                      type="real"     dimensions="nVertLevels nCells Time"/>
                 <var name="pv_vertex"               type="real"     dimensions="nVertLevels nVertices Time"/>
                 <var name="pv_cell"                 type="real"     dimensions="nVertLevels nCells Time"/>
+                
                 <!-- nick PV budget -->
                   <var name="ertel_pv"                 type="real"     dimensions="nVertLevels nCells Time"/>
                   <var name="u_pv"                 type="real"     dimensions="nCells Time"/>
@@ -858,7 +866,10 @@
 			            <var name="tend_u_phys" type="real" dimensions="nVertLevels nEdges Time"/>
                   <var name="depv_dt_diab_pv" type="real" dimensions="nCells Time"/>
 			            <var name="depv_dt_fric_pv" type="real" dimensions="nCells Time"/>
-
+			            <var name="vortexLat" type="real"     dimensions="FIFTEEN Time"/>
+                  <var name="vortexLon" type="real"     dimensions="FIFTEEN Time"/>
+                  <var name="inVortex" type="integer"  dimensions="nCells Time"/>
+                  
                 <!-- reconstructed horizontal velocity vectors at cell centers -->
                 <var name="uReconstructX"           type="real"     dimensions="nVertLevels nCells Time"/>
                 <var name="uReconstructY"           type="real"     dimensions="nVertLevels nCells Time"/>

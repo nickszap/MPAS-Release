@@ -354,6 +354,9 @@ module atm_core
       ! For high-frequency diagnostics output
       character (len=StrKIND) :: tempfilename
       
+      !nick
+      integer :: nTPV
+      
       ierr = 0
       
       ! Eventually, dt should be domain specific
@@ -405,6 +408,16 @@ module atm_core
 
          write(0,*) ' '
          write(0,*) 'Begin timestep ', trim(timeStamp)
+         
+         
+         !nick: track vortex
+         nTPV = 1
+         !write(0,*) 'Number of TPVs Tracking: ', nTPV
+         block_ptr => domain % blocklist
+         call mpas_pool_get_subpool(block_ptr % structs, 'state', state)
+         call mpas_pool_get_subpool(block_ptr % structs, 'diag', diag)
+         call mpas_pool_get_subpool(block_ptr % structs, 'mesh', mesh)
+         call atm_compute_vortexLoc(state, diag, mesh, domain,1, nTPV)
 
          !
          ! Read external field updates
@@ -2146,6 +2159,188 @@ module atm_core
       call interp_pvBudget_diagnostics(mesh, diag, pvuVal, missingVal)
    
    end subroutine atm_compute_pvBudget_diagnostics
+   
+   subroutine atm_compute_vortexLoc(state, diag, mesh, domain, time_lev, nTPV)
+     
+      use mpas_constants
+   
+      implicit none
+      
+      !Track the min of the vortex on 2pvu from previous time and
+      !update inVortex[iCell]>0 if cell w/in tpv
+      type (domain_type), intent(in) :: domain
+      type (mpas_pool_type), intent(in)  :: mesh
+      type (mpas_pool_type), intent(inout) :: state !in since update w on boundary
+      type (mpas_pool_type), intent(inout) :: diag
+      integer, intent(in) :: time_lev, nTPV
+   
+      integer, pointer :: nCells, nVertLevels, nCellsSolve, index_qv
+      integer :: updateBoundary, regionChanging, nbrInVortex
+      integer :: iCell, k, iNbr, iTPV
+      integer, dimension(:), pointer :: inVortex, nEdgesOnCell
+      type (field1DInteger), pointer :: inVortex_f
+      integer, dimension(:,:), pointer :: cellsOnCell
+      real(kind=RKIND) :: pvuVal, missingVal, valCell, theta_min, global_theta_min, dThetaTPV, tpvRadius, thetaContour
+      real(kind=RKIND) :: iVortexLat, iVortexLon, lat0, lon0, bigVal, dist, maxDist
+      real (kind=RKIND), dimension(:), pointer :: theta_pv, latCell, lonCell, vortexLat, vortexLon
+      integer, dimension(:), allocatable :: tmp
+
+      call mpas_pool_get_dimension(mesh, 'nCells', nCells)
+      call mpas_pool_get_dimension(mesh, 'nVertLevels', nVertLevels)
+      
+      call atm_compute_pv_diagnostics(state, time_lev, diag, mesh)
+      
+      !for tracking TPVs, we can use:
+      !-spatial disk about min: not necesarily w/in TPV
+      !-PT DT from minTheta: not necessarily w/in TPV
+      
+      !note that atmo core doesn't work for multiple blocks/process...1 block <---> 1 process for MPI comm
+      maxDist = 2.0e5 ! m for search radius for next tpv min wrt previous min
+      dThetaTPV = 10.0 ! degrees K for amplitude from tpv min...defines spatial inVortex
+      thetaContour = 305.0 !degrees K for bounding contour about tpv min...defines spatial inVortex
+      tpvRadius = 6.0e5 !m for radius from tpv min...defines spatial vortex
+      
+      write(0,*) "TPV search info (nTPV, maxDist, dThetaTPV, tpvRadius, thetaContour): ", nTPV, maxDist, dThetaTPV, tpvRadius, thetaContour
+      
+      call mpas_pool_get_array(diag, 'vortexLat', vortexLat) !get_array needs array to get :)
+      call mpas_pool_get_array(diag, 'vortexLon', vortexLon)
+      call mpas_pool_get_array(diag, 'theta_pv', theta_pv)
+      call mpas_pool_get_array(diag, 'inVortex', inVortex)
+      call mpas_pool_get_array(mesh, 'latCell', latCell)
+      call mpas_pool_get_array(mesh, 'lonCell', lonCell)
+      call mpas_pool_get_dimension(mesh, 'nCellsSolve', nCellsSolve)
+      
+      bigVal = 99999.0_RKIND
+      !to track multiple tpvs, we'll use a tmp array to accumulate inVortex for each TPV
+      allocate(tmp(nCells))
+      tmp(:) = 0
+      
+      do iTPV = 1, nTPV
+        theta_min = bigVal
+        iVortexLat = vortexLat(iTPV)
+        iVortexLon = vortexLon(iTPV)
+        do iCell = 1, nCellsSolve
+          !include cell in min only if
+          !(1) cell within search disk by distance and (2) value not missing value
+          if (theta_pv(iCell)==missingVal) cycle
+          
+          dist = sphere_distance(latCell(iCell), lonCell(iCell), iVortexLat, iVortexLon, a)
+          if (dist>maxDist) cycle
+          
+          valCell = theta_pv(iCell)
+          if (valCell<theta_min) then
+            theta_min = valCell
+          end if
+        end do
+      
+        !seed inVortex array with min
+        !since the original approach of a disk about min can tag cells outside tpv,
+        !here, we'll try an idea like choosing a contour:
+        !in vortex if in a connected region theta-thetaMin<dTheta0
+        inVortex(:) = 0
+        lat0 = bigVal
+        lon0 = bigVal
+        call mpas_dmpar_min_real(domain%dminfo, theta_min, global_theta_min)
+        if (theta_min == global_theta_min) then
+         !This block has the minimum cell. Note that can have multiple minima in/across       
+         !blocks if cells have equal minimum values (unlikely)
+         do iCell = 1, nCellsSolve
+           if (theta_pv(iCell)==global_theta_min) then
+             inVortex(iCell) = 2
+             lat0 = latCell(iCell)
+             lon0 = lonCell(iCell)
+           end if
+         end do
+        end if !theta_min == global_theta_min
+        
+        !need to distribute vortexLat/Lon for (1) next time's search and (2) output.
+        !mpas_dmpar_bcast_int uses IO_NODE so that won't work for us,
+        !hence the lat0/lon0 hack to store value
+        call mpas_dmpar_min_real(domain%dminfo, lat0, iVortexLat)
+        call mpas_dmpar_min_real(domain%dminfo, lon0, iVortexLon)
+        write(0,*) 'vortex lat, lon, thetaMin: ', iVortexLat, iVortexLon, global_theta_min
+        vortexLat(iTPV) = iVortexLat
+        vortexLon(iTPV) = iVortexLon
+        
+        !Flood out the region connected to the vortex.
+        updateBoundary = 1
+        regionChanging = 1
+        call mpas_pool_get_field(diag, 'inVortex', inVortex_f)
+        
+        call mpas_pool_get_array(mesh, 'cellsOnCell', cellsOnCell)
+        call mpas_pool_get_array(mesh, 'nEdgesOnCell', nEdgesOnCell)
+        
+        do while (updateBoundary>0)
+          call mpas_dmpar_exch_halo_field(inVortex_f)
+          updateBoundary = 0
+          regionChanging = 1 !force all blocks to try region filling again
+          do while (regionChanging>0)
+            !Since i don't know how to make queues in fortran,
+            !just keep looping over cells
+            regionChanging = 0
+            do iCell = 1, nCellsSolve
+              if (inVortex(iCell)<1 .AND. theta_pv(iCell) .NE. missingVal) then
+                !self not in vortex and has valid value
+                nbrInVortex = 0
+                do iNbr = 1, nEdgesOnCell(iCell)
+                  if (inVortex(cellsOnCell(iNbr,iCell))>0) then
+                    nbrInVortex = nbrInVortex+1
+                  end if
+                end do
+                if (nbrInVortex == 0) cycle
+                !if here, self is candidate with nbr in vortex
+                !if (theta_pv(iCell)-global_theta_min < dThetaTPV) then
+                if (theta_pv(iCell) < thetaContour) then
+                  !self in vortex
+                  inVortex(iCell) = 1
+                  regionChanging = regionChanging+1
+                  do iNbr = 1, nEdgesOnCell(iCell)
+                    if (cellsOnCell(iNbr, iCell)>nCellsSolve) updateBoundary = 1
+                  end do
+                end if !dTheta<dThetaTPV
+              end if !inVortex(iCell)<1
+            end do !iCell
+          end do !while (regionChanging)
+          
+          !all blocks have to keep filling if any boundary was updated...sync
+          iNbr = updateBoundary !temp variable
+          call mpas_dmpar_max_int(domain%dminfo, iNbr, updateBoundary)
+        end do !while (updateBoundary)
+        !don't need to spread inVortex since any boundary updates will continue loop above
+        !call mpas_dmpar_exch_halo_field(inVortex_f)
+        
+        !limit inVortex to w/in radius of tpvLocation
+        do iCell = 1, nCellsSolve
+          dist = sphere_distance(latCell(iCell), lonCell(iCell), iVortexLat, iVortexLon, a)
+          if (dist>tpvRadius) then
+            inVortex(iCell) = 0
+          end if
+        end do
+        
+        tmp(1:nCellsSolve) = tmp(1:nCellsSolve)+inVortex(1:nCellsSolve)
+        
+      end do !iTPV
+      
+      inVortex(1:nCellsSolve) = tmp(1:nCellsSolve)
+      deallocate(tmp)
+      
+  end subroutine atm_compute_vortexLoc
+  
+  real (kind=RKIND) function sphere_distance(lat1, lon1, lat2, lon2, radius)
+
+     !Compute the great-circle distance between (lat1, lon1) and (lat2, lon2) on a
+     !sphere with given radius.
+     !==================================================================================================
+     implicit none
+
+     real (kind=RKIND), intent(in) :: lat1, lon1, lat2, lon2, radius
+     real (kind=RKIND) :: arg1
+
+     arg1 = sqrt( sin(0.5*(lat2-lat1))**2 +  &
+                  cos(lat1)*cos(lat2)*sin(0.5*(lon2-lon1))**2 )
+     sphere_distance = 2.*radius*asin(arg1)
+
+   end function sphere_distance
 
 end module atm_core
 
