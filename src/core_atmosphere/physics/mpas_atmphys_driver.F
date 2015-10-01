@@ -139,7 +139,7 @@
  real(kind=RKIND), dimension(:,:), allocatable :: tmp
  real (kind=RKIND), dimension(:,:,:), pointer :: scalars
  real(kind=RKIND), dimension(:,:), pointer :: rthblten
- real (kind=RKIND) :: heatStrat, heatTrop, dThetaTrop, dThetaStrat, thetaStrat, thetaTrop
+ real (kind=RKIND) :: heatStrat, heatTrop, dThetaPV, thetaSwitch
 
 !==================================================================================================
 
@@ -320,30 +320,22 @@
       
       call mpas_pool_get_array(tend_physics, 'rthblten', rthblten)
       
-      !heatStrat = -10./(24.*3600.) !10 K/day * 1 day/24hr * 1 hr/3600 s ~ 1.16E-4 K/s
-      !heatTrop = 0./(24.*3600.)
-      heatStrat = 0./(24.*3600.) !10 K/day * 1 day/24hr * 1 hr/3600 s ~ 1.16E-4 K/s
-      heatTrop = 10./(24.*3600.)
-      dThetaTrop = -5. !K
-      dThetaStrat = 5.
+      heatStrat = -10./(24.*3600.) !10 K/day * 1 day/24hr * 1 hr/3600 s ~ 1.16E-4 K/s
+      heatTrop = 0./(24.*3600.)
+      dThetaPV = 10. !K, heating switches from heatStrat to heatTrop at theta_pv+dThetaPV
       
       call mpas_pool_get_array(diag, 'theta_pv', theta_pv)
       call mpas_pool_get_array(diag, 'theta', theta)
       
       do iCell = 1, nCellsSolve
         if (inVortex(iCell)>0) then
-          thetaStrat = theta_pv(iCell)+dThetaStrat
-          thetaTrop = theta_pv(iCell)+dThetaTrop
+          thetaSwitch = theta_pv(iCell)+dThetaPV
           do k=1,nVertLevels
-            if (theta(k,iCell)>thetaStrat) then
-              !in stratosphere
+            if (theta(k,iCell)>thetaSwitch) then
+              !above specified level
               rthblten(k,iCell) = rthblten(k,iCell)+heatStrat
-            else if (theta(k,iCell)<thetaTrop) then
-              !in troposphere
-              rthblten(k,iCell) = rthblten(k,iCell)+heatTrop
             else
-              !near tropopause
-              rthblten(k,iCell) = rthblten(k,iCell)+ heatTrop+(heatStrat-heatTrop)*(theta(k,iCell)-thetaTrop)/(thetaStrat-thetaTrop)
+              rthblten(k,iCell) = rthblten(k,iCell)+ heatTrop
             end if
           end do
           
