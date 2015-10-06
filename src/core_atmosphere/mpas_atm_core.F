@@ -2181,8 +2181,8 @@ module atm_core
       type (field1DInteger), pointer :: inVortex_f
       integer, dimension(:,:), pointer :: cellsOnCell
       real(kind=RKIND) :: pvuVal, missingVal, valCell, theta_min, global_theta_min, dThetaTPV, tpvRadius, thetaContour
-      real(kind=RKIND) :: iVortexLat, iVortexLon, lat0, lon0, bigVal, dist, maxDist
-      real (kind=RKIND), dimension(:), pointer :: theta_pv, latCell, lonCell, vortexLat, vortexLon
+      real(kind=RKIND) :: iVortexLat, iVortexLon, lat0, lon0, bigVal, dist, maxDist, u0,v0
+      real (kind=RKIND), dimension(:), pointer :: theta_pv, latCell, lonCell, vortexLat, vortexLon, vortexU, vortexV, u_pv, v_pv
       integer, dimension(:), allocatable :: tmp
 
       call mpas_pool_get_dimension(mesh, 'nCells', nCells)
@@ -2204,8 +2204,12 @@ module atm_core
       
       call mpas_pool_get_array(diag, 'vortexLat', vortexLat) !get_array needs array to get :)
       call mpas_pool_get_array(diag, 'vortexLon', vortexLon)
+      call mpas_pool_get_array(diag, 'vortexU', vortexU)
+      call mpas_pool_get_array(diag, 'vortexV', vortexV)
       call mpas_pool_get_array(diag, 'theta_pv', theta_pv)
       call mpas_pool_get_array(diag, 'inVortex', inVortex)
+      call mpas_pool_get_array(diag, 'u_pv', u_pv)
+      call mpas_pool_get_array(diag, 'v_pv', v_pv)
       call mpas_pool_get_array(mesh, 'latCell', latCell)
       call mpas_pool_get_array(mesh, 'lonCell', lonCell)
       call mpas_pool_get_dimension(mesh, 'nCellsSolve', nCellsSolve)
@@ -2240,6 +2244,8 @@ module atm_core
         inVortex(:) = 0
         lat0 = bigVal
         lon0 = bigVal
+        u0 = bigVal
+        v0 = bigVal
         call mpas_dmpar_min_real(domain%dminfo, theta_min, global_theta_min)
         if (theta_min == global_theta_min) then
          !This block has the minimum cell. Note that can have multiple minima in/across       
@@ -2249,6 +2255,8 @@ module atm_core
              inVortex(iCell) = 2
              lat0 = latCell(iCell)
              lon0 = lonCell(iCell)
+             u0 = u_pv(iCell)
+             v0 = v_pv(iCell)
            end if
          end do
         end if !theta_min == global_theta_min
@@ -2258,9 +2266,13 @@ module atm_core
         !hence the lat0/lon0 hack to store value
         call mpas_dmpar_min_real(domain%dminfo, lat0, iVortexLat)
         call mpas_dmpar_min_real(domain%dminfo, lon0, iVortexLon)
-        write(0,*) 'vortex lat, lon, thetaMin: ', iVortexLat, iVortexLon, global_theta_min
+        call mpas_dmpar_min_real(domain%dminfo, u0, lat0)
+        call mpas_dmpar_min_real(domain%dminfo, v0, lon0)
+        write(0,*) 'vortex lat, lon, thetaMin, u, v: ', iVortexLat, iVortexLon, global_theta_min, lat0, lon0
         vortexLat(iTPV) = iVortexLat
         vortexLon(iTPV) = iVortexLon
+        vortexU(iTPV) = lat0
+        vortexV(iTPV) = lon0
         
         !Flood out the region connected to the vortex.
         updateBoundary = 1

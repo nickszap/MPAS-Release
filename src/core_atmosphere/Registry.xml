@@ -575,6 +575,8 @@
 			  <var name="vortexLat"/>
 			  <var name="vortexLon"/>
 			  <var name="inVortex"/>
+			  <var name="vortexU"/>
+			  <var name="vortexV"/>
 			<var name="uReconstructZonal"/>
 			<var name="uReconstructMeridional"/>
 			  <var name="ertel_pv"/>
@@ -869,6 +871,8 @@
 			            <var name="vortexLat" type="real"     dimensions="FIFTEEN Time"/>
                   <var name="vortexLon" type="real"     dimensions="FIFTEEN Time"/>
                   <var name="inVortex" type="integer"  dimensions="nCells Time"/>
+                  <var name="vortexU" type="real"     dimensions="FIFTEEN Time"/>
+                  <var name="vortexV" type="real"     dimensions="FIFTEEN Time"/>
                   
                 <!-- reconstructed horizontal velocity vectors at cell centers -->
                 <var name="uReconstructX"           type="real"     dimensions="nVertLevels nCells Time"/>

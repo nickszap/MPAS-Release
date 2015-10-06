@@ -131,15 +131,15 @@
  !-zero water vapor column
  !-zero cloud fraction
  !have to store original qv/cldFrac/..., 0 columns, mpas2physics, call radiation, restore qv/cldFrac/...
- integer :: iCell, k, modifyField
+ integer :: iCell, k, modifyField, iVortex
  integer, pointer :: index_qv, nCellsSolve, nVertLevels
  integer, dimension(:), pointer :: inVortex
- real (kind=RKIND), dimension(:), pointer :: theta_pv
+ real (kind=RKIND), dimension(:), pointer :: theta_pv, vortexU, vortexV
  real(kind=RKIND), dimension(:,:), pointer :: qv, cldfrac, theta
  real(kind=RKIND), dimension(:,:), allocatable :: tmp
  real (kind=RKIND), dimension(:,:,:), pointer :: scalars
- real(kind=RKIND), dimension(:,:), pointer :: rthblten
- real (kind=RKIND) :: heatStrat, heatTrop, dThetaPV, thetaSwitch
+ real(kind=RKIND), dimension(:,:), pointer :: rthblten, rthratenlw, rublten, rvblten, uZonal, uMeridional
+ real (kind=RKIND) :: heatStrat, heatTrop, dThetaPV, thetaSwitch, u0, v0, dU, dV
 
 !==================================================================================================
 
@@ -195,7 +195,7 @@
     !nick: store unmodified states and modify
     !For qv, MPAS_to_physics() needs to be called to change on "physics mesh". 
     !For cldfrac, can just modify cldfrac on mpas mesh
-    modifyField = 3 !1-qv, 2-cldfrac, 3-heating profile, other-no change
+    modifyField = 5 !1-qv, 2-cldfrac, 3-artificial heating profile, 4-flip lw below trop, 5-u,v tendencies.... other-no change
     
     call mpas_pool_get_array(diag, 'inVortex', inVortex)
     call mpas_pool_get_dimension(mesh, 'nVertLevels', nVertLevels)
@@ -322,7 +322,7 @@
       
       heatStrat = -10./(24.*3600.) !10 K/day * 1 day/24hr * 1 hr/3600 s ~ 1.16E-4 K/s
       heatTrop = 0./(24.*3600.)
-      dThetaPV = 10. !K, heating switches from heatStrat to heatTrop at theta_pv+dThetaPV
+      dThetaPV = 5. !K, heating switches from heatStrat to heatTrop at theta_pv+dThetaPV
       
       call mpas_pool_get_array(diag, 'theta_pv', theta_pv)
       call mpas_pool_get_array(diag, 'theta', theta)
@@ -342,6 +342,60 @@
         end if
       end do
     end if !modifyField 3
+    
+    if (modifyField .EQ. 4) then
+      !lwrad = -lwrad below 2pvu in TPV
+      
+      call mpas_pool_get_array(tend_physics, 'rthratenlw', rthratenlw)
+      
+      call mpas_pool_get_array(diag, 'theta_pv', theta_pv)
+      call mpas_pool_get_array(diag, 'theta', theta)
+      
+      do iCell = 1, nCellsSolve
+        if (inVortex(iCell)>0) then
+          do k=1,nVertLevels
+            if (theta(k,iCell)<theta_pv(iCell)) then
+              rthratenlw(k,iCell) = -rthratenlw(k,iCell)
+            end if
+          end do
+          
+        end if
+      end do
+    end if !modifyField 4
+    
+    if (modifyField .EQ. 5) then
+      !wind tendency to generate or destroy vorticity->PV.
+      !assume vel = velTPV+velRelative (translation+circulation) and velTPV is from core
+      
+      iVortex = 0
+      call mpas_pool_get_array(diag, 'vortexU', vortexU)
+      call mpas_pool_get_array(diag, 'vortexV', vortexV)
+      u0 = vortexU(iVortex)
+      v0 = vortexV(iVortex)
+      
+      call mpas_pool_get_array(tend_physics, 'rublten', rublten)
+      call mpas_pool_get_array(tend_physics, 'rvblten', rvblten)
+      call mpas_pool_get_array(diag, 'uReconstructZonal', uZonal)
+      call mpas_pool_get_array(diag, 'uReconstructMeridional', uMeridional)
+      
+      call mpas_pool_get_array(diag, 'theta_pv', theta_pv)
+      call mpas_pool_get_array(diag, 'theta', theta)
+      
+      do iCell = 1, nCellsSolve
+        if (inVortex(iCell)>0) then
+          do k=1,nVertLevels
+            if (theta(k,iCell)<theta_pv(iCell)+20 .OR. theta(k,iCell)>theta_pv(iCell)-10) then
+              dU = uZonal(k,iCell)-u0
+              dV = uMeridional(k,iCell)-v0
+              
+              rublten(k,iCell) = rublten(k,iCell)-dU/(24.*3600.)
+              rvblten(k,iCell) = rvblten(k,iCell)-dV/(24.*3600.)
+            end if
+          end do
+          
+        end if
+      end do
+    end if !modifyField 5
 
     !deallocate arrays shared by all physics parameterizations:
     call deallocate_forall_physics
