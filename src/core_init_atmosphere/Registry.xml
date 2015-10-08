@@ -480,6 +480,7 @@
                         <var name="qv"      array_group="moist"/>
                         <var name="qc"      array_group="moist"/>
                         <var name="qr"      array_group="moist"/>
+                        <var name="tpvScalar"      array_group="passive"/>
                 </var_array>
         </var_struct>
 

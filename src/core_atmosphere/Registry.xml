@@ -799,6 +799,7 @@
                         <var name="qi"      array_group="moist"/>
                         <var name="qs"      array_group="moist"/>
                         <var name="qg"      array_group="moist"/>
+                        <var name="tpvScalar" array_group="passive"/>
                 </var_array>
 
                 <var_array name="aerosols" type="real" dimensions="nAerLevels nCells Time">
@@ -981,6 +982,7 @@
                         <var name="tend_qi"    name_in_code="qi"        array_group="moist"/>
                         <var name="tend_qs"    name_in_code="qs"        array_group="moist"/>
                         <var name="tend_qg"    name_in_code="qg"        array_group="moist"/>
+                        <var name="tend_tpvScalar"   name_in_code="tpvScalar" array_group="passive"/>
                 </var_array>
         </var_struct>
 

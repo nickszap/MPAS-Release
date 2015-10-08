@@ -1628,6 +1628,8 @@ module atm_time_integration
       integer, pointer :: config_scalar_vadv_order
 
       integer, parameter :: hadv_opt = 2
+      
+      integer, pointer :: index_tpvScalar
 
       flux4(q_im2, q_im1, q_i, q_ip1, ua) =                     &
           ua*( 7.*(q_i + q_im1) - (q_ip1 + q_im2) )/12.0
@@ -1879,6 +1881,11 @@ module atm_time_integration
          write(0,*) ' bad value for config_scalar_vadv_order - ', config_scalar_vadv_order
 
       end if
+      
+      !nick: local_advance_density = .false. is hardcoded in this release, so we'll re-zero the scalar_tend
+      !that's used as scratch space (as Bill suggested Feb. 19,2015)
+      call mpas_pool_get_dimension(state, 'index_tpvScalar', index_tpvScalar)
+      scalar_tend(index_tpvScalar,:,:) = 0.0_RKIND
 
       if (local_advance_density) then
          scalar_tend(:,:,1:nCells) = scalar_tend_save(:,:,1:nCells)

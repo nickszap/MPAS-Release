@@ -417,7 +417,8 @@ module atm_core
          call mpas_pool_get_subpool(block_ptr % structs, 'state', state)
          call mpas_pool_get_subpool(block_ptr % structs, 'diag', diag)
          call mpas_pool_get_subpool(block_ptr % structs, 'mesh', mesh)
-         call atm_compute_vortexLoc(state, diag, mesh, domain,1, nTPV)
+         !call atm_compute_vortexLoc(state, diag, mesh, domain,1, nTPV)
+         call atm_compute_vortexLoc_scalar(state, diag, mesh, domain,1)
 
          !
          ! Read external field updates
@@ -2337,6 +2338,43 @@ module atm_core
       deallocate(tmp)
       
   end subroutine atm_compute_vortexLoc
+  
+  subroutine atm_compute_vortexLoc_scalar(state, diag, mesh, domain, time_lev)
+     
+      use mpas_constants
+   
+      implicit none
+      
+      !Using the scalar_tpv that's following a specified blob about, make the binary inVortex flag
+      
+      type (domain_type), intent(in) :: domain
+      type (mpas_pool_type), intent(in)  :: mesh
+      type (mpas_pool_type), intent(inout) :: state !in since update w on boundary
+      type (mpas_pool_type), intent(inout) :: diag
+      integer, intent(in) :: time_lev
+   
+      integer, pointer :: nCells, nVertLevels, nCellsSolve, index_tpvScalar
+      integer :: iCell, k, iNbr, iTPV
+      integer, dimension(:), pointer :: inVortex
+      real (kind=RKIND), dimension(:,:,:), pointer :: scalars
+
+      call mpas_pool_get_dimension(mesh, 'nCells', nCells)
+      call mpas_pool_get_dimension(mesh, 'nVertLevels', nVertLevels)
+      call mpas_pool_get_array(diag, 'inVortex', inVortex)
+      call mpas_pool_get_dimension(mesh, 'nCellsSolve', nCellsSolve)
+      
+      call mpas_pool_get_dimension(state, 'index_tpvScalar', index_tpvScalar)
+      call mpas_pool_get_array(state, 'scalars', scalars, time_lev)
+      
+      do iCell = 1, nCellsSolve
+        if ( maxval(scalars(index_tpvScalar,:,iCell))>1 ) then
+          inVortex(iCell)=1
+        else
+          inVortex(iCell) = 0
+        end if
+      end do
+      
+  end subroutine atm_compute_vortexLoc_scalar
   
   real (kind=RKIND) function sphere_distance(lat1, lon1, lat2, lon2, radius)
 

@@ -138,7 +138,7 @@
  real(kind=RKIND), dimension(:,:), pointer :: qv, cldfrac, theta
  real(kind=RKIND), dimension(:,:), allocatable :: tmp
  real (kind=RKIND), dimension(:,:,:), pointer :: scalars
- real(kind=RKIND), dimension(:,:), pointer :: rthblten, rthratenlw, rublten, rvblten, uZonal, uMeridional
+ real(kind=RKIND), dimension(:,:), pointer :: rthblten, rthratenlw, rublten, rvblten, uZonal, uMeridional, rqiblten
  real (kind=RKIND) :: heatStrat, heatTrop, dThetaPV, thetaSwitch, u0, v0, dU, dV
 
 !==================================================================================================
@@ -195,7 +195,7 @@
     !nick: store unmodified states and modify
     !For qv, MPAS_to_physics() needs to be called to change on "physics mesh". 
     !For cldfrac, can just modify cldfrac on mpas mesh
-    modifyField = 5 !1-qv, 2-cldfrac, 3-artificial heating profile, 4-flip lw below trop, 5-u,v tendencies.... other-no change
+    modifyField = 6 !1-qv, 2-cldfrac, 3-artificial heating profile, 4-flip lw below trop, 5-u,v tendencies, 6-cloud tendencies,.... other-no change
     
     call mpas_pool_get_array(diag, 'inVortex', inVortex)
     call mpas_pool_get_dimension(mesh, 'nVertLevels', nVertLevels)
@@ -390,6 +390,27 @@
               
               rublten(k,iCell) = rublten(k,iCell)-dU/(24.*3600.)
               rvblten(k,iCell) = rvblten(k,iCell)-dV/(24.*3600.)
+            end if
+          end do
+          
+        end if
+      end do
+    end if !modifyField 5
+    
+    if (modifyField .EQ. 6) then
+      !Add cloud w/in vortex by tendency
+      !for qi, .1g/kg is fairly big
+      
+      call mpas_pool_get_array(tend_physics, 'rqiblten', rqiblten)
+      
+      call mpas_pool_get_array(diag, 'theta_pv', theta_pv)
+      call mpas_pool_get_array(diag, 'theta', theta)
+      
+      do iCell = 1, nCellsSolve
+        if (inVortex(iCell)>0) then
+          do k=1,nVertLevels
+            if (theta(k,iCell)<theta_pv(iCell) .AND. theta(k,iCell)>theta_pv(iCell)-20) then
+              rqiblten(k,iCell) = rqiblten(k,iCell) + .0001/(24*3600) !kg/kg / day
             end if
           end do
           
