@@ -134,12 +134,12 @@
  integer :: iCell, k, modifyField, iVortex
  integer, pointer :: index_qv, nCellsSolve, nVertLevels
  integer, dimension(:), pointer :: inVortex
- real (kind=RKIND), dimension(:), pointer :: theta_pv, vortexU, vortexV
+ real (kind=RKIND), dimension(:), pointer :: theta_pv, vortexU, vortexV, vortexLat
  real(kind=RKIND), dimension(:,:), pointer :: qv, cldfrac, theta
  real(kind=RKIND), dimension(:,:), allocatable :: tmp
  real (kind=RKIND), dimension(:,:,:), pointer :: scalars
- real(kind=RKIND), dimension(:,:), pointer :: rthblten, rthratenlw, rublten, rvblten, uZonal, uMeridional, rqiblten
- real (kind=RKIND) :: heatStrat, heatTrop, dThetaPV, thetaSwitch, u0, v0, dU, dV
+ real(kind=RKIND), dimension(:,:), pointer :: rthblten, rthratenlw, rublten, rvblten, uZonal, uMeridional, rqblten
+ real (kind=RKIND) :: heatStrat, heatTrop, dThetaPV, thetaSwitch, u0, v0, dU, dV, thetaLow, thetaHigh, heatMid
 
 !==================================================================================================
 
@@ -195,7 +195,7 @@
     !nick: store unmodified states and modify
     !For qv, MPAS_to_physics() needs to be called to change on "physics mesh". 
     !For cldfrac, can just modify cldfrac on mpas mesh
-    modifyField = 6 !1-qv, 2-cldfrac, 3-artificial heating profile, 4-flip lw below trop, 5-u,v tendencies, 6-cloud tendencies,.... other-no change
+    modifyField = 5 !1-qv, 2-cldfrac, 3-artificial heating profile, 4-flip lw below trop, 5-u,v tendencies, 6-moisture tendencies,.... other-no change
     
     call mpas_pool_get_array(diag, 'inVortex', inVortex)
     call mpas_pool_get_dimension(mesh, 'nVertLevels', nVertLevels)
@@ -320,25 +320,47 @@
       
       call mpas_pool_get_array(tend_physics, 'rthblten', rthblten)
       
-      heatStrat = -10./(24.*3600.) !10 K/day * 1 day/24hr * 1 hr/3600 s ~ 1.16E-4 K/s
-      heatTrop = 0./(24.*3600.)
-      dThetaPV = 5. !K, heating switches from heatStrat to heatTrop at theta_pv+dThetaPV
-      
       call mpas_pool_get_array(diag, 'theta_pv', theta_pv)
       call mpas_pool_get_array(diag, 'theta', theta)
       
+      !uniform heating relative to DT
+      !heatStrat = 0./(24.*3600.) !10 K/day * 1 day/24hr * 1 hr/3600 s ~ 1.16E-4 K/s
+      !heatTrop = 20./(24.*3600.)
+      !dThetaPV = 0. !K, heating switches from heatStrat to heatTrop at theta_pv+dThetaPV
+      !do iCell = 1, nCellsSolve
+      !  if (inVortex(iCell)>0) then
+      !    thetaSwitch = theta_pv(iCell)+dThetaPV
+      !    do k=1,nVertLevels
+      !      if (theta(k,iCell)>thetaSwitch) then
+      !        !above specified level
+      !        rthblten(k,iCell) = rthblten(k,iCell)+heatStrat
+      !      else
+      !        rthblten(k,iCell) = rthblten(k,iCell)+ heatTrop
+      !      end if
+      !    end do
+      !    
+      !  end if
+      !end do
+      ! ------------------ or -------------------
+      !localized heating profile with 3 regions of [strat,mid,trop]
+      thetaLow = -10.0_RKIND !relative to DT
+      thetaHigh = 0.0_RKIND
+      heatMid = -10./(24.*3600.)
+      heatStrat = 0.0_RKIND !heating above thetaHigh
+      heatTrop = 0.0_RKIND !heating below thetaLow
       do iCell = 1, nCellsSolve
         if (inVortex(iCell)>0) then
-          thetaSwitch = theta_pv(iCell)+dThetaPV
+          dThetaPV = 0.0_RKIND !heating rate we'll apply
           do k=1,nVertLevels
-            if (theta(k,iCell)>thetaSwitch) then
-              !above specified level
-              rthblten(k,iCell) = rthblten(k,iCell)+heatStrat
+            if (theta(k,iCell)>theta_pv(iCell)+thetaHigh) then !in "uniform strato"
+              dThetaPV = heatStrat
+            else if (theta(k,iCell)<theta_pv(iCell)+thetaLow) then !in "uniform tropo"
+              dThetaPV = heatTrop
             else
-              rthblten(k,iCell) = rthblten(k,iCell)+ heatTrop
+              dThetaPV = heatMid
             end if
+            rthblten(k,iCell) = rthblten(k,iCell)+ dThetaPV
           end do
-          
         end if
       end do
     end if !modifyField 3
@@ -367,7 +389,7 @@
       !wind tendency to generate or destroy vorticity->PV.
       !assume vel = velTPV+velRelative (translation+circulation) and velTPV is from core
       
-      iVortex = 0
+      iVortex = 1
       call mpas_pool_get_array(diag, 'vortexU', vortexU)
       call mpas_pool_get_array(diag, 'vortexV', vortexV)
       u0 = vortexU(iVortex)
@@ -381,15 +403,20 @@
       call mpas_pool_get_array(diag, 'theta_pv', theta_pv)
       call mpas_pool_get_array(diag, 'theta', theta)
       
+      call mpas_pool_get_array(diag, 'vortexLat', vortexLat)
+      dThetaPV = 80.0_RKIND !latitude to relax to
+      
       do iCell = 1, nCellsSolve
         if (inVortex(iCell)>0) then
           do k=1,nVertLevels
             if (theta(k,iCell)<theta_pv(iCell)+20 .OR. theta(k,iCell)>theta_pv(iCell)-10) then
-              dU = uZonal(k,iCell)-u0
-              dV = uMeridional(k,iCell)-v0
+              !dU = uZonal(k,iCell)-u0
+              !dV = uMeridional(k,iCell)-v0
+              dU = 0.0_RKIND
+              dV = 10*(dThetaPV-vortexLat(iVortex)*180./pii) ! relax towards latitude
               
-              rublten(k,iCell) = rublten(k,iCell)-dU/(24.*3600.)
-              rvblten(k,iCell) = rvblten(k,iCell)-dV/(24.*3600.)
+              rublten(k,iCell) = rublten(k,iCell)+dU/(24.*3600.)
+              rvblten(k,iCell) = rvblten(k,iCell)+dV/(24.*3600.)
             end if
           end do
           
@@ -398,25 +425,30 @@
     end if !modifyField 5
     
     if (modifyField .EQ. 6) then
-      !Add cloud w/in vortex by tendency
-      !for qi, .1g/kg is fairly big
-      
-      call mpas_pool_get_array(tend_physics, 'rqiblten', rqiblten)
+      !Add qv or cloud w/in vortex by tendency
       
       call mpas_pool_get_array(diag, 'theta_pv', theta_pv)
       call mpas_pool_get_array(diag, 'theta', theta)
       
+      !call mpas_pool_get_array(tend_physics, 'rqiblten', rqblten)
+      call mpas_pool_get_array(tend_physics, 'rqvblten', rqblten)
       do iCell = 1, nCellsSolve
         if (inVortex(iCell)>0) then
+          ! Upper level qi. for qi, .1g/kg is fairly big
+          !do k=1,nVertLevels
+          !  if (theta(k,iCell)<theta_pv(iCell) .AND. theta(k,iCell)>theta_pv(iCell)-20) then
+          !    rqblten(k,iCell) = rqblten(k,iCell) + .0001/(24*3600) !kg/kg / day
+          !  end if
+          !end do
+          ! -------- OR ----------------
           do k=1,nVertLevels
-            if (theta(k,iCell)<theta_pv(iCell) .AND. theta(k,iCell)>theta_pv(iCell)-20) then
-              rqiblten(k,iCell) = rqiblten(k,iCell) + .0001/(24*3600) !kg/kg / day
-            end if
+            if (theta(k,iCell)<theta_pv(iCell) ) then
+              rqblten(k,iCell) = rqblten(k,iCell) + .001/(24*3600) !kg/kg / day
+              end if
           end do
-          
         end if
       end do
-    end if !modifyField 5
+    end if !modifyField 6
 
     !deallocate arrays shared by all physics parameterizations:
     call deallocate_forall_physics

@@ -417,8 +417,9 @@ module atm_core
          call mpas_pool_get_subpool(block_ptr % structs, 'state', state)
          call mpas_pool_get_subpool(block_ptr % structs, 'diag', diag)
          call mpas_pool_get_subpool(block_ptr % structs, 'mesh', mesh)
-         !call atm_compute_vortexLoc(state, diag, mesh, domain,1, nTPV)
-         call atm_compute_vortexLoc_scalar(state, diag, mesh, domain,1)
+         call atm_compute_vortexLoc(state, diag, mesh, domain,1, nTPV)
+         !call atm_compute_vortexLoc_scalar(state, diag, mesh, domain,1)
+         !call atm_compute_vortexLoc_area(state, diag, mesh, domain, 1)
 
          !
          ! Read external field updates
@@ -2375,6 +2376,65 @@ module atm_core
       end do
       
   end subroutine atm_compute_vortexLoc_scalar
+  
+  subroutine atm_compute_vortexLoc_area(state, diag, mesh, domain, time_lev)
+     
+      use mpas_constants
+   
+      implicit none
+      
+      !Within a prescribed lat-lon region, call a TPV anything with DT PT below threshold
+      
+      type (domain_type), intent(in) :: domain
+      type (mpas_pool_type), intent(in)  :: mesh
+      type (mpas_pool_type), intent(inout) :: state !inout since update w on boundary
+      type (mpas_pool_type), intent(inout) :: diag
+      integer, intent(in) :: time_lev
+   
+      integer, pointer :: nCells, nVertLevels, nCellsSolve
+      integer :: iCell
+      integer, dimension(:), pointer :: inVortex
+      real (kind=RKIND) :: latMin, lonMin, latMax, lonMax, thetaContour, theta_min, global_theta_min
+      real (kind=RKIND), dimension(:), pointer :: theta_pv, latCell, lonCell, vortexPT
+      
+      !lat goes -pi/2:pi/2 and lon goes 0:2pi
+      latMin = 80.*pii/180.
+      thetaContour = 305.
+      
+      call atm_compute_pv_diagnostics(state, time_lev, diag, mesh)
+      
+      call mpas_pool_get_dimension(mesh, 'nCells', nCells)
+      call mpas_pool_get_array(diag, 'inVortex', inVortex)
+      call mpas_pool_get_dimension(mesh, 'nCellsSolve', nCellsSolve)
+      call mpas_pool_get_array(mesh, 'latCell', latCell)
+      call mpas_pool_get_array(mesh, 'lonCell', lonCell)
+      call mpas_pool_get_array(diag, 'theta_pv', theta_pv)
+      !call mpas_pool_get_array(diag, 'vortexPT', vortexPT)
+      
+      !ID vortex columns
+      inVortex(:) = 0
+      do iCell = 1, nCellsSolve
+        if ( (latCell(iCell).ge.latMin) .and. (theta_pv(iCell).le.thetaContour) ) then
+          inVortex(iCell)=1
+        else
+          inVortex(iCell) = 0
+        end if
+      end do
+      
+      !get min theta w/in all TPVs
+      !theta_min = 99999.0_RKIND
+      !do iCell = 1,nCellsSolve
+      !  if (inVortex(iCell)>0) then
+      !    if (theta_pv(iCell)<theta_min) then
+      !      theta_min = theta_pv(iCell)
+      !    end if
+      !  end if
+      !end do
+      
+      !call mpas_dmpar_min_real(domain%dminfo, theta_min, global_theta_min)
+      !vortexPT(1) = global_theta_min
+      
+  end subroutine atm_compute_vortexLoc_area
   
   real (kind=RKIND) function sphere_distance(lat1, lon1, lat2, lon2, radius)
 
