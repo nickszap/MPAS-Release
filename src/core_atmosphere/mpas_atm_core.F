@@ -1431,14 +1431,13 @@ module atm_core
           end if
         end do !k
         if (nChanged .GT. 0) then !found lowest level
+          iLev_DT(iCell) = k
           if (k .EQ. 1) then 
             sgnHemi = sign(1.0_RKIND, latCell(iCell))
             sgn = ertel_pv(k,iCell)*sgnHemi-pvuVal
             if (sgn .GT. 0) then !whole column above DT
               iLev_DT(iCell) = 0
             end if
-          else
-            iLev_DT(iCell) = k
           end if
         else !whole column below DT
           iLev_DT(iCell) = nVertLevels+2
