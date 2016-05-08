@@ -1422,8 +1422,8 @@ module atm_core
       end do !iCell
       
       !Fill iLev_DT with the lowest level above the tropopause (If DT above column, iLev>nVertLevels. If DT below column, iLev=0.
-      nChanged = 0
       do iCell=1,nCells
+        nChanged = 0
         do k=1,nVertLevels
           if (inStrato(k,iCell) .GT. 0) then
             nChanged = 1
