@@ -5663,7 +5663,7 @@ module atm_time_integration
 
    subroutine summarize_timestep(domain)
 
-       use ieee_arithmetic, only : ieee_is_nan
+       !use ieee_arithmetic, only : ieee_is_nan
 
        implicit none
 
@@ -5909,17 +5909,17 @@ module atm_time_integration
             !
             do iCell = 1, nCellsSolve
             do k = 1, nVertLevels
-               if (ieee_is_nan(w(k,iCell))) then
-                  call mpas_dmpar_global_abort('NaN detected in ''w'' field.')
-               end if
+               !if (ieee_is_nan(w(k,iCell))) then
+               !   call mpas_dmpar_global_abort('NaN detected in ''w'' field.')
+               !end if
             end do
             end do
 
             do iEdge = 1, nEdgesSolve
             do k = 1, nVertLevels
-               if (ieee_is_nan(u(k,iEdge))) then
-                  call mpas_dmpar_global_abort('NaN detected in ''u'' field.')
-               end if
+               !if (ieee_is_nan(u(k,iEdge))) then
+               !   call mpas_dmpar_global_abort('NaN detected in ''u'' field.')
+               !end if
             end do
             end do
 
